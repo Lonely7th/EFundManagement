@@ -1,7 +1,1 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-__title__ = ''
-__author__ = 'JN Zhang'
-__mtime__ = '2018/6/1'
-"""
+# coding=utf-8
