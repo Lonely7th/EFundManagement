@@ -18,7 +18,7 @@ class CodeManager:
         code_list = [x for x in self.db_manager_tk.get_code_list()]
         buy_list = list()
         for i in range(num):
-            index = random.randint(0, len(code_list))
+            index = random.randint(0, len(code_list)-1)
             if code_list[index] not in buy_list:
                 buy_list.append(code_list[index]["code"])
         return buy_list

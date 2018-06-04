@@ -15,11 +15,12 @@ from db.db_manager import DBManager
 from util.draw_utils import draw_profit, draw_manager
 
 capital_base = 1000000  # 起始资金
+capital_min = 100000
 capital_available = capital_base
 current_position = list()
 history_capital = list()
 history_order = list()
-k_rate = 0.01  # 最低日均涨幅
+k_rate = 0.005  # 最低日均涨幅
 d_rate = -0.03  # 最大跌幅
 
 
@@ -82,15 +83,16 @@ def fun_sell(date):
         close_price = get_cur_values(item_position[0], date, "cur_close_price")
         if close_price != 0:
             profit_rate = (close_price - item_position[1]) / item_position[1]  # 总收益率
-            if profit_rate < d_rate and item_position in current_position:  # 跌破平仓线后
+            if date_diff(item_position[-1], date) > 0 and profit_rate < d_rate and item_position in current_position:  # 跌破平仓线后
                 bp_utils.insert_line("date->" + date)
                 print(item_position[0], close_price, item_position[1])
                 capital_base += close_price * item_position[2]
                 bp_utils.insert_line("sell->" + json.dumps([item_position[0], str(round(profit_rate * 100, 2)) + "%", capital_base]))
                 current_position.remove(item_position)
             if date_diff(item_position[-1], date) > 0 and item_position in current_position:
-                profit_d_rate = (close_price - item_position[1]) / item_position[1] / date_diff(item_position[-1], date)  # 日均收益率
-                if profit_d_rate < k_rate:
+                expect_price = item_position[1] * ((1 + k_rate)**date_diff(item_position[-1], date))  # 价格的期望值
+                # expect_price = item_position[1] * (1 + (k_rate * date_diff(item_position[-1], date)))  # 价格的期望值
+                if expect_price > close_price >= item_position[1]:
                     print(item_position[0], close_price, item_position[1])
                     bp_utils.insert_line("date->" + date)
                     capital_base += close_price * item_position[2]
@@ -106,17 +108,16 @@ if __name__ == "__main__":
     bp_utils = BPUtils("bp_result_fm_0.txt", "w")
     db_manager_tk = DBManager("tk_details")
     # 初始化时间轴
-    date_list = date_range("2016-06-05", "2018-03-09")
+    date_list = date_range("2017-01-01", "2017-12-31")
     for index in range(len(date_list)):
         cur_date = date_list[index]
-        if datetime.datetime.strptime(cur_date, "%Y-%m-%d").weekday() == 0:
+        if capital_base >= capital_min:
             # 获取待购买的证券列表
             buy_list = code_m.get_buy_list()
             print(cur_date, buy_list)
             if buy_list:
                 fun_buy(buy_list, cur_date)
-        else:
-            fun_sell(cur_date)
+        fun_sell(cur_date)
     net_rate = (get_all_capital() - history_capital[0]) / history_capital[0]  # 计算回测结果
     # 统计交易结果
     print(round(net_rate * 100, 2), "%")
