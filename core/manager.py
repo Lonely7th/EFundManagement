@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-__title__ = '启动服务'
+__title__ = '策略管理'
 __author__ = 'JN Zhang'
 __mtime__ = '2018/06/01'
 """
@@ -12,15 +12,13 @@ import numpy as np
 from bp.bp_utils import BPUtils
 from core.code_manager import CodeManager
 from db.db_manager import DBManager
-from util.draw_utils import draw_profit, draw_manager
+from util.draw_utils import draw_manager
 
 capital_base = 1000000  # 起始资金
-capital_min = 100000
-capital_available = capital_base
-current_position = list()
+current_position = list()  # 当前持仓
 history_capital = list()
 history_order = list()
-k_rate = 0.005  # 最低日均涨幅
+k_rate = 0.01  # 最低日均涨幅
 d_rate = -0.03  # 最大跌幅
 
 
@@ -58,17 +56,18 @@ def get_all_capital():
 def fun_buy(buy_list, date):
     global capital_base
     bp_utils.insert_line("date->" + date)
-    p_stage = capital_base / len(buy_list)  # 对资金池进行均分
+    p_stage = get_all_capital() / 10  # 对资金池进行均分(10份)
     for code in buy_list:
-        open_price = get_cur_values(code, date, "cur_open_price")
-        if open_price != 0 and not np.isnan(open_price):
-            amount = int(p_stage / open_price / 100) * 100
-            if amount >= 100:
-                item_position = [code, open_price, amount, date]
-                current_position.append(item_position)
-                capital_base -= open_price * amount
-                # 保存开单记录
-                bp_utils.insert_line("buy-->" + json.dumps(item_position))
+        if capital_base > p_stage:
+            open_price = get_cur_values(code, date, "cur_open_price")
+            if open_price != 0 and not np.isnan(open_price):
+                amount = int(p_stage / open_price / 100) * 100
+                if amount >= 100:
+                    item_position = [code, open_price, amount, date]
+                    current_position.append(item_position)
+                    capital_base -= open_price * amount
+                    # 保存开单记录
+                    bp_utils.insert_line("buy-->" + json.dumps(item_position))
 
 
 # 加仓
@@ -92,12 +91,15 @@ def fun_sell(date):
             if date_diff(item_position[-1], date) > 0 and item_position in current_position:
                 expect_price = item_position[1] * ((1 + k_rate)**date_diff(item_position[-1], date))  # 价格的期望值
                 # expect_price = item_position[1] * (1 + (k_rate * date_diff(item_position[-1], date)))  # 价格的期望值
-                if expect_price > close_price >= item_position[1]:
-                    print(item_position[0], close_price, item_position[1])
-                    bp_utils.insert_line("date->" + date)
-                    capital_base += close_price * item_position[2]
-                    bp_utils.insert_line("sell->" + json.dumps([item_position[0], str(round(profit_rate * 100, 2)) + "%", capital_base]))
-                    current_position.remove(item_position)
+                if close_price >= item_position[1]:
+                    if expect_price > close_price:
+                        print(item_position[0], close_price, item_position[1])
+                        bp_utils.insert_line("date->" + date)
+                        capital_base += close_price * item_position[2]
+                        bp_utils.insert_line("sell->" + json.dumps([item_position[0], str(round(profit_rate * 100, 2)) + "%", capital_base]))
+                        current_position.remove(item_position)
+                else:
+                    item_position[-1] = date
     # 统计历史数据
     history_capital.append(capital_base)
     bp_utils.insert_line("cash->" + str(get_all_capital()))
@@ -111,12 +113,12 @@ if __name__ == "__main__":
     date_list = date_range("2017-01-01", "2017-12-31")
     for index in range(len(date_list)):
         cur_date = date_list[index]
-        if capital_base >= capital_min:
-            # 获取待购买的证券列表
-            buy_list = code_m.get_buy_list()
-            print(cur_date, buy_list)
-            if buy_list:
-                fun_buy(buy_list, cur_date)
+        # 获取待购买的证券列表
+        buy_list = code_m.get_buy_list()
+        print(cur_date, buy_list)
+        if buy_list:
+            fun_buy(buy_list, cur_date)
+        # 管理仓位
         fun_sell(cur_date)
     net_rate = (get_all_capital() - history_capital[0]) / history_capital[0]  # 计算回测结果
     # 统计交易结果
