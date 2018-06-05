@@ -44,13 +44,13 @@ def draw_profit_bar(path):
     lable_y = [x * 0 for x in range(len(profit_list))]
     # 绘制中轴线
     plt.plot(lable_x, lable_y, color="#404040", linewidth=1.0, linestyle="-")
-    profit_list_h = [x for x in profit_list if x >= 0]
+    profit_list_h = [x for x in profit_list if x >= 1]
     profit_list_l = [x for x in profit_list if x < 0]
     plt.bar(lable_x, profit_list, color="g", width=1.0)
     plt.xlim(lable_x.min(), lable_x.max() * 1.1)
     plt.ylim(min(profit_list), max(profit_list) * 1.1)
     plt.grid(True)
-    print(max(profit_list_h), min(profit_list_l))
+    print(len(profit_list_h), len(profit_list_l), max(profit_list_h), min(profit_list_l))
 
 
 def draw_manager(path):

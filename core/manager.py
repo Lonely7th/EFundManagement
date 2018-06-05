@@ -16,10 +16,11 @@ from util.draw_utils import draw_manager
 
 capital_base = 1000000  # 起始资金
 current_position = list()  # 当前持仓
+max_position = 5  # 最大持仓限制
 history_capital = list()
 history_order = list()
 k_rate = 0.01  # 最低日均涨幅
-d_rate = -0.03  # 最大跌幅
+d_rate = -0.05  # 最大跌幅(平仓线)
 
 
 # 时间轴
@@ -38,7 +39,7 @@ def date_diff(start, end, format="%Y-%m-%d"):
 
 # 获取某个时间点的股票价格
 def get_cur_values(code, date, key):
-    result = [x[key] for x in db_manager_tk.find_by_key({'code': code})[0]["price_list"] if x["cur_timer"] == date]
+    result = [x[key] for x in db_manager_tk.find_by_key({'code': code})[0]["price_list"] if x["date"] == date]
     if result:
         return round(float(result[0]), 2)
     return 0
@@ -56,14 +57,15 @@ def get_all_capital():
 def fun_buy(buy_list, date):
     global capital_base
     bp_utils.insert_line("date->" + date)
-    p_stage = get_all_capital() / 10  # 对资金池进行均分(10份)
+    p_stage = get_all_capital() / max_position  # 对资金池进行均分
     for code in buy_list:
-        if capital_base > p_stage:
-            open_price = get_cur_values(code, date, "cur_open_price")
+        if len(current_position) < max_position:
+            open_price = get_cur_values(code, date, "open")
             if open_price != 0 and not np.isnan(open_price):
-                amount = int(p_stage / open_price / 100) * 100
+                open_stage = p_stage / 10 * 4  # 当前资金段的4成开仓
+                amount = int(open_stage / open_price / 100) * 100
                 if amount >= 100:
-                    item_position = [code, open_price, amount, date]
+                    item_position = [code, open_price, amount, date, 0]
                     current_position.append(item_position)
                     capital_base -= open_price * amount
                     # 保存开单记录
@@ -79,25 +81,25 @@ def fun_add():
 def fun_sell(date):
     global capital_base
     for item_position in current_position[:]:
-        close_price = get_cur_values(item_position[0], date, "cur_close_price")
+        close_price = get_cur_values(item_position[0], date, "close")
         if close_price != 0:
             profit_rate = (close_price - item_position[1]) / item_position[1]  # 总收益率
             if date_diff(item_position[-1], date) > 0 and profit_rate < d_rate and item_position in current_position:  # 跌破平仓线后
                 bp_utils.insert_line("date->" + date)
-                print(item_position[0], close_price, item_position[1])
                 capital_base += close_price * item_position[2]
                 bp_utils.insert_line("sell->" + json.dumps([item_position[0], str(round(profit_rate * 100, 2)) + "%", capital_base]))
                 current_position.remove(item_position)
-            if date_diff(item_position[-1], date) > 0 and item_position in current_position:
+            if date_diff(item_position[-1], date) > 5 and item_position in current_position:
                 expect_price = item_position[1] * ((1 + k_rate)**date_diff(item_position[-1], date))  # 价格的期望值
                 # expect_price = item_position[1] * (1 + (k_rate * date_diff(item_position[-1], date)))  # 价格的期望值
                 if close_price >= item_position[1]:
                     if expect_price > close_price:
-                        print(item_position[0], close_price, item_position[1])
                         bp_utils.insert_line("date->" + date)
                         capital_base += close_price * item_position[2]
                         bp_utils.insert_line("sell->" + json.dumps([item_position[0], str(round(profit_rate * 100, 2)) + "%", capital_base]))
                         current_position.remove(item_position)
+                    # else:
+                        # 如果满足涨幅条件则加仓
                 else:
                     item_position[-1] = date
     # 统计历史数据
@@ -108,7 +110,7 @@ def fun_sell(date):
 if __name__ == "__main__":
     code_m = CodeManager()
     bp_utils = BPUtils("bp_result_fm_0.txt", "w")
-    db_manager_tk = DBManager("tk_details")
+    db_manager_tk = DBManager("fcr_details")
     # 初始化时间轴
     date_list = date_range("2017-01-01", "2017-12-31")
     for index in range(len(date_list)):
