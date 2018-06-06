@@ -20,7 +20,7 @@ max_position = 5  # 最大持仓限制
 history_capital = list()
 history_order = list()
 k_rate = 0.01  # 最低日均涨幅
-d_rate = -0.05  # 最大跌幅(平仓线)
+d_rate = -0.03  # 最大跌幅(平仓线)
 
 
 # 获取某个时间点的股票价格
@@ -49,11 +49,20 @@ def get_all_capital():
 # 买进股票
 # position 仓位
 def order_buy(code, date, amount, position):
+    global capital_base
     open_price = get_cur_values(code, date, "open")
     if open_price != 0 and not np.isnan(open_price) and amount >= 100:
         if capital_base > open_price * amount:
-            if get_position_by_code(code):  # 加仓
-                pass
+            ticker = get_position_by_code(code)
+            if ticker:  # 加仓
+                surplus_value = ((ticker[1] * ticker[2]) + (open_price * amount)) / (ticker[2] + amount)
+                ticker[1] = surplus_value  # 修改剩余价值
+                ticker[2] = ticker[2] + amount  # 修改剩余持仓
+                ticker[-1] = position
+                ticker[-2] = date
+                capital_base -= open_price * amount
+                # 保存加仓记录
+                bp_utils.insert_line("add-->" + json.dumps(ticker))
             else:  # 开仓
                 if len(current_position) < max_position:
                     item_position = [code, open_price, amount, date, position]
@@ -65,12 +74,16 @@ def order_buy(code, date, amount, position):
 
 # 卖出股票
 def order_sell(ticker, date, amount):
+    global capital_base
     close_price = get_cur_values(ticker[0], date, "close")
     if ticker in current_position and close_price != 0:
         if amount < ticker[2]:  # 减仓
-            pass
+            surplus_value = ((ticker[1] * ticker[2]) - (close_price * amount)) / (ticker[2] - amount)
+            ticker[1] = surplus_value  # 修改剩余价值
+            ticker[2] = ticker[2] - amount  # 修改剩余持仓
+            capital_base += close_price * amount
         else:  # 平仓
-            profit_rate = (close_price - ticker[1]) / ticker[1]
+            profit_rate = (close_price - ticker[1]) * ticker[2] / get_all_capital()
             capital_base += close_price * ticker[2]
             bp_utils.insert_line("sell->" + json.dumps([ticker[0], str(round(profit_rate * 100, 2)) + "%", capital_base, date]))
             current_position.remove(ticker)
@@ -83,10 +96,10 @@ def fun_buy(buy_list, date):
     for code in buy_list:
         open_price = get_cur_values(code, date, "open")
         if open_price != 0 and not np.isnan(open_price):
-            open_stage = p_stage / 10 * 4  # 当前资金段的4成开仓
+            open_stage = p_stage / 10 * 2  # 当前资金段的2成开仓
             amount = int(open_stage / open_price / 100) * 100
             if amount >= 100:
-                order_buy(code, date, amount, 0)
+                order_buy(code, date, amount, 1)
 
 
 # 平仓逻辑
@@ -95,23 +108,24 @@ def fun_sell(date):
         close_price = get_cur_values(item_position[0], date, "close")
         if close_price != 0:
             profit_rate = (close_price - item_position[1]) / item_position[1]  # 总收益率
-            if date_diff(item_position[-1], date) > 0 and profit_rate < d_rate and item_position in current_position:  # 跌破平仓线后
+            if date_diff(item_position[-2], date) > 0 and profit_rate < d_rate and item_position in current_position:  # 跌破平仓线后
                 order_sell(item_position, date, item_position[2])
-            if date_diff(item_position[-1], date) > 5 and item_position in current_position:
-                expect_price = item_position[1] * ((1 + k_rate)**date_diff(item_position[-1], date))  # 价格的期望值
-                # expect_price = item_position[1] * (1 + (k_rate * date_diff(item_position[-1], date)))  # 价格的期望值
-                if close_price >= item_position[1]:
+            if date_diff(item_position[-2], date) > 0 and item_position in current_position:
+                if close_price > item_position[1]:
+                    expect_price = item_position[1] * ((1 + k_rate) ** date_diff(item_position[-2], date))  # 价格的期望值
                     if expect_price > close_price:
                         order_sell(item_position, date, item_position[2])
                     else:
-                        pass
+                        if profit_rate > -d_rate and item_position[-1] < 5:
+                            order_buy(item_position[0], date, item_position[2]/item_position[-1], item_position[-1]+1)
+                else:
+                    item_position[-2] = date
     # 统计历史数据
     history_capital.append(capital_base)
     bp_utils.insert_line("cash->" + str(get_all_capital()))
 
 
 if __name__ == "__main__":
-    global capital_base
     code_m = CodeManager()
     bp_utils = BPUtils("bp_result_fm_0.txt", "w")
     db_manager_tk = DBManager("fcr_details")
