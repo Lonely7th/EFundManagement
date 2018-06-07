@@ -12,7 +12,8 @@ from db.db_manager import DBManager
 base_path = os.path.abspath(os.path.join(os.getcwd(), "..")) + "/data/data_code.txt"
 
 if __name__ == "__main__":
-    dm = DBManager("fcr_details")
+    # dm = DBManager("fcr_details")
+    dm = DBManager("fcr_w_details")
     _file = open(base_path, "r", encoding="utf-8")
     tk_list = list()
     while True:
