@@ -5,11 +5,13 @@ __title__ = '策略管理'
 __author__ = 'JN Zhang'
 __mtime__ = '2018/06/01'
 """
+import datetime
 import json
 import numpy as np
 
 from bp.bp_utils import BPUtils
 from core.code_manager import CodeManager
+from core.ema_manager import EmaManager
 from db.db_manager import DBManager
 from util.date_utils import date_range, date_diff
 from util.draw_utils import draw_manager
@@ -25,7 +27,7 @@ d_rate = -0.03  # 最大跌幅(平仓线)
 
 # 获取某个时间点的股票价格
 def get_cur_values(code, date, key):
-    result = [x[key] for x in db_manager_tk.find_by_key({'code': code})[0]["price_list"] if x["date"] == date]
+    result = [x[key] for x in db_manager_tk.find_by_key({'ticker': code})[0]["price_list"] if x["date"] == date]
     if result:
         return round(float(result[0]), 2)
     return 0
@@ -76,17 +78,18 @@ def order_buy(code, date, amount, position):
 def order_sell(ticker, date, amount):
     global capital_base
     close_price = get_cur_values(ticker[0], date, "close")
-    if ticker in current_position and close_price != 0:
-        if amount < ticker[2]:  # 减仓
-            surplus_value = ((ticker[1] * ticker[2]) - (close_price * amount)) / (ticker[2] - amount)
-            ticker[1] = surplus_value  # 修改剩余价值
-            ticker[2] = ticker[2] - amount  # 修改剩余持仓
-            capital_base += close_price * amount
-        else:  # 平仓
-            profit_rate = (close_price - ticker[1]) * ticker[2] / get_all_capital()
-            capital_base += close_price * ticker[2]
-            bp_utils.insert_line("sell->" + json.dumps([ticker[0], str(round(profit_rate * 100, 2)) + "%", capital_base, date]))
-            current_position.remove(ticker)
+    if ticker in current_position[:] and close_price != 0:
+        if date_diff(ticker[-2], date) > 0:
+            if amount < ticker[2]:  # 减仓
+                surplus_value = ((ticker[1] * ticker[2]) - (close_price * amount)) / (ticker[2] - amount)
+                ticker[1] = surplus_value  # 修改剩余价值
+                ticker[2] = ticker[2] - amount  # 修改剩余持仓
+                capital_base += close_price * amount
+            else:  # 平仓
+                profit_rate = (close_price - ticker[1]) * ticker[2] / get_all_capital()
+                capital_base += close_price * ticker[2]
+                bp_utils.insert_line("sell->" + json.dumps([ticker[0], str(round(profit_rate * 100, 2)) + "%", capital_base, date]))
+                current_position.remove(ticker)
 
 
 # 开仓逻辑
@@ -122,11 +125,28 @@ def fun_sell(date):
                     item_position[-2] = date
     # 统计历史数据
     history_capital.append(capital_base)
+    bp_utils.insert_line("date->" + date)
     bp_utils.insert_line("cash->" + str(get_all_capital()))
 
 
+def fun_buy_02(date, buy_list):
+    p_stage = get_all_capital() / len(buy_list)  # 对资金池进行均分
+    for code in buy_list:
+        open_price = get_cur_values(code, date, "open")
+        if open_price != 0 and not np.isnan(open_price):
+            amount = int(p_stage / open_price / 100) * 100
+            if amount >= 100:
+                order_buy(code, date, amount, 1)
+
+
+def fun_sell_02(date, sell_list):
+    for item_position in current_position[:]:
+        if item_position[0] in sell_list:
+            order_sell(item_position, date, item_position[2])
+
+
 if __name__ == "__main__":
-    code_m = CodeManager()
+    code_ema = EmaManager()
     bp_utils = BPUtils("bp_result_fm_0.txt", "w")
     db_manager_tk = DBManager("fcr_details")
     # 初始化时间轴
@@ -134,12 +154,15 @@ if __name__ == "__main__":
     for index in range(len(date_list)):
         cur_date = date_list[index]
         # 获取待购买的证券列表
-        buy_list = code_m.get_buy_list()
-        print(cur_date, buy_list)
-        if buy_list:
-            fun_buy(buy_list, cur_date)
-        # 管理仓位
-        fun_sell(cur_date)
+        if datetime.datetime.strptime(cur_date, "%Y-%m-%d").weekday() == 0:
+            print(cur_date)
+            buy_list = code_ema.get_buy_list(cur_date)
+            print(cur_date, buy_list)
+            if buy_list:
+                fun_buy_02(cur_date, buy_list)
+        if current_position and datetime.datetime.strptime(cur_date, "%Y-%m-%d").weekday() == 4:
+            sell_list = code_ema.get_sell_list(cur_date)
+            fun_sell_02(cur_date, sell_list)
     net_rate = (get_all_capital() - history_capital[0]) / history_capital[0]  # 计算回测结果
     # 统计交易结果
     print(round(net_rate * 100, 2), "%")
