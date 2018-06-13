@@ -13,7 +13,7 @@ if __name__ == "__main__":
     # 获取数据
     db_manager_tk = DBManager("fcr_details")
     code_list = [x for x in db_manager_tk.get_code_list_02()]
-    for item in code_list[:20]:
+    for item in code_list:
         tk_item = db_manager_tk.find_one_by_key({"ticker": item["ticker"]})
         # 计算成交量
         price_list = tk_item["price_list"]
