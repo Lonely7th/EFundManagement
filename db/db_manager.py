@@ -43,3 +43,6 @@ class DBManager:
 
     def add_tk_item(self, ticker, __dict):
         return self.table.update_one({'ticker': ticker}, {"$push": {"price_list": __dict}})
+
+    def add_tk_item_k(self, ticker, __dict):
+        return self.table.update_one({'ticker': ticker}, {"$push": {"hk_list": __dict}})
